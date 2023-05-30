@@ -22,7 +22,7 @@ app.use(cors());
 
 const authRoutes = require("./routes/user");
 
-app.use("/smart-farming", authRoutes);
+app.use("/auth", authRoutes);
 
 const port = process.env.PORT;
 
