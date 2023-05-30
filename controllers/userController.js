@@ -3,9 +3,6 @@ const { validationResult } = require("express-validator");
 const jwt = require("jsonwebtoken");
 
 exports.signUp = async (req, res) => {
-  if (req.cookies && req.cookies.token) {
-    return res.status(403).json({ message: "User is already logged in" });
-  }
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(422).json({ error: errors.array()[0].msg });
@@ -13,6 +10,17 @@ exports.signUp = async (req, res) => {
 
   try {
     const newUser = new User(req.body);
+    const username = await User.findOne({ username: newUser.username });
+
+    if (username) {
+      return res.status(400).json({ error: "Username already exists" });
+    }
+
+    const email = await User.findOne({ email: newUser.email });
+    if (email) {
+      return res.status(400).json({ error: "Email already exists" });
+    }
+
     await newUser.save();
     res.status(201).json({ message: "User created successfully" });
   } catch (error) {
@@ -20,45 +28,57 @@ exports.signUp = async (req, res) => {
   }
 };
 
-exports.signIn = (req, res) => {
+exports.signIn = async (req, res) => {
   const { email, password } = req.body;
 
-  if (req.cookies && req.cookies.token) {
-    return res.status(403).json({ message: "User is already logged in" });
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(422).json({ error: errors.array()[0].msg });
   }
 
-  User.findOne({ email })
-    .then((user) => {
-      if (!user) {
-        return res.status(404).json({ message: "Email not found" });
-      }
-      if (!user.authenticate(password)) {
-        return res
-          .status(401)
-          .json({ error: "Email and password do not match" });
-      }
+  try {
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ error: "Email not found" });
+    }
 
-      const token = jwt.sign({ _id: user._id }, process.env.SECRET);
-      res.cookie("token", token, { expire: new Date() + 30 });
+    if (!user.authenticate(password)) {
+      return res
+        .status(401)
+        .json({ error: "Email and password does not match" });
+    }
 
-      const { _id, username, email } = user;
-      return res.json({
-        token,
-        user: { _id, username, email },
-        message: "Login success",
+    const token = jwt.sign({ _id: user._id }, process.env.SECRET);
+    try {
+      res.cookie("token", token, {
+        maxAge: 3600000,
+        httpOnly: true,
+        secure: true,
+        sameSite: "none",
       });
-    })
-    .catch((error) => {
-      console.log(error);
-      res.status(500).json({ message: "Internal server error" });
+    } catch (err) {
+      console.log(err);
+      return res.status(500).json({ error: "Error setting Cookies" });
+    }
+    const { _id, username } = user;
+    return res.json({
+      token,
+      user: { _id, username, email },
+      message: "Login success",
     });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ message: "Internal server error" });
+  }
 };
 
 exports.signOut = (req, res) => {
-  res.clearCookie("token");
-  return res.json({
-    message: "Logout success",
-  });
+  try {
+    res.clearCookie("token");
+    return res.json({
+      success: "Logout success",
+    });
+  } catch (err) {
+    return res.status(500).json({ message: "Internal server error" });
+  }
 };
-
-exports.dashboard
